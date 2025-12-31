@@ -108,6 +108,12 @@ const TaskCard = ({ task, onDragStart, onDelete, onEdit }) => {
         {task.title}
       </h4>
 
+      {task.description && (
+        <p className="text-xs text-zinc-400 mb-2 line-clamp-3 whitespace-pre-wrap">
+          {task.description}
+        </p>
+      )}
+
       {task.url && (
         <a
           href={task.url}
@@ -133,20 +139,27 @@ const AddTaskModal = ({ isOpen, onClose, onSave, taskToEdit }) => {
   const [effort, setEffort] = useState("low");
   const [impact, setImpact] = useState("low");
   const [url, setUrl] = useState("");
+  const [description, setDescription] = useState("");
 
   // Reset or populate form when modal opens/closes or task changes
   useEffect(() => {
     if (isOpen) {
       if (taskToEdit) {
-        setTitle(taskToEdit.title);
-        setEffort(taskToEdit.effort);
-        setImpact(taskToEdit.impact);
-        setUrl(taskToEdit.url || "");
+        setTimeout(() => {
+          setTitle(taskToEdit.title);
+          setEffort(taskToEdit.effort);
+          setImpact(taskToEdit.impact);
+          setUrl(taskToEdit.url || "");
+          setDescription(taskToEdit.description || "");
+        }, 0);
       } else {
-        setTitle("");
-        setEffort("low");
-        setImpact("low");
-        setUrl("");
+        setTimeout(() => {
+          setTitle("");
+          setEffort("low");
+          setImpact("low");
+          setUrl("");
+          setDescription("");
+        }, 0);
       }
     }
   }, [isOpen, taskToEdit]);
@@ -162,6 +175,7 @@ const AddTaskModal = ({ isOpen, onClose, onSave, taskToEdit }) => {
       effort,
       impact,
       url,
+      description,
     });
 
     onClose();
@@ -247,6 +261,18 @@ const AddTaskModal = ({ isOpen, onClose, onSave, taskToEdit }) => {
               onChange={(e) => setUrl(e.target.value)}
               placeholder="https://"
               className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-zinc-200 text-sm focus:outline-none focus:border-blue-500"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs text-zinc-400 mb-1">
+              Description (Optional)
+            </label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Add more details..."
+              className="w-full bg-zinc-950 border border-zinc-700 rounded-lg px-3 py-2 text-zinc-200 text-sm focus:outline-none focus:border-blue-500 min-h-[80px] h-20 resize-none"
             />
           </div>
 
@@ -492,7 +518,7 @@ export default function App() {
                           onDelete={deleteTask}
                           onEdit={openEditModal}
                         />
-                      )
+                      ),
                     )}
 
                     {filteredTasks.filter((t) => t.status === col.id).length ===
