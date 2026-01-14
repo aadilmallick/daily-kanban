@@ -1,4 +1,5 @@
 import React, {
+  startTransition,
   useEffect,
   useMemo,
   useRef,
@@ -15,9 +16,13 @@ import {
   Clock,
   ExternalLink,
   Filter,
+  FolderPlus,
   GripVertical,
   Layout,
+  LayoutDashboard,
   List as ListIcon,
+  Menu,
+  MoreVertical,
   Pencil,
   Plus,
   Save,
@@ -83,7 +88,6 @@ const getMatrixType = (impact, effort) => {
 const TaskCard = (
   {
     task,
-    onDragStart,
     onDelete,
     onEdit,
     onTaskDrop,
@@ -106,7 +110,6 @@ const TaskCard = (
       }),
     );
     e.dataTransfer.effectAllowed = "move";
-    onDragStart(task.id);
   };
 
   const handleSubtaskDragStart = (e, subtask) => {
@@ -448,40 +451,90 @@ const AddTaskModal = ({ isOpen, onClose, onSave, taskToEdit }) => {
 // --- Main App Component ---
 
 export default function App() {
-  const [tasks, setTasks] = useState(() => {
-    const saved = localStorage.getItem("kanban-tasks");
-    return saved ? JSON.parse(saved) : [
+  // --- State Initialization with Migration Logic ---
+  const [boards, setBoards] = useState(() => {
+    const savedBoards = localStorage.getItem("kanban-boards");
+    if (savedBoards) {
+      return JSON.parse(savedBoards);
+    }
+
+    // Migration logic for existing users
+    const oldTasks = localStorage.getItem("kanban-tasks");
+    const tasks = oldTasks ? JSON.parse(oldTasks) : [
       {
         id: "1",
-        title: "Research competitors",
-        description: "Look at top 3 market leaders",
+        title: "Welcome to FocusBoard",
+        description: "This is your first task.",
         status: "todo",
         effort: "low",
         impact: "high",
         url: "",
         subtasks: [],
       },
-      {
-        id: "2",
-        title: "Design system update",
-        description: "",
-        status: "inprogress",
-        effort: "high",
-        impact: "high",
-        url: "",
-        subtasks: [],
-      },
     ];
+
+    const oldNotes = localStorage.getItem("kanban-notes") || "";
+
+    // Create a default board with old data
+    const initialBoards = [{
+      id: "default-board",
+      name: "Main Board",
+      tasks: tasks,
+      notes: oldNotes,
+    }];
+    return initialBoards;
   });
 
-  const [notes, setNotes] = useState(() => {
-    return localStorage.getItem("kanban-notes") || "";
+  const [activeBoardId, setActiveBoardId] = useState(() => {
+    return localStorage.getItem("kanban-active-board") || "default-board";
   });
+
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+
+  // Ensure activeBoardId is valid
+  useEffect(() => {
+    if (boards.length > 0 && !boards.find((b) => b.id === activeBoardId)) {
+      startTransition(() => {
+        setActiveBoardId(boards[0].id);
+      });
+    }
+  }, [boards, activeBoardId]);
+
+  // Derived state for the CURRENT board
+  const activeBoard = useMemo(() => {
+    return boards.find((b) => b.id === activeBoardId) || boards[0];
+  }, [boards, activeBoardId]);
+
+  // Helper to update CURRENT board state
+  const setActiveBoardData = (newTasksOrFn, newNotes) => {
+    setBoards((prevBoards) =>
+      prevBoards.map((board) => {
+        if (board.id !== activeBoardId) return board;
+
+        const updatedTasks = typeof newTasksOrFn === "function"
+          ? newTasksOrFn(board.tasks)
+          : (newTasksOrFn !== undefined ? newTasksOrFn : board.tasks);
+
+        const updatedNotes = newNotes !== undefined ? newNotes : board.notes;
+
+        return {
+          ...board,
+          tasks: updatedTasks,
+          notes: updatedNotes,
+        };
+      })
+    );
+  };
+
+  // Wrapper for setTasks to maintain compatibility with existing logic
+  const setTasks = (newTasksOrFn) =>
+    setActiveBoardData(newTasksOrFn, undefined);
+  const setNotes = (newNotes) => setActiveBoardData(undefined, newNotes);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
   const [filter, setFilter] = useState("all");
-  const [draggedTaskId, setDraggedTaskId] = useState(null);
+  const [editingBoardId, setEditingBoardId] = useState(null);
 
   // Popover State & Refs
   const popoverRef = useRef(null);
@@ -490,19 +543,61 @@ export default function App() {
   const [isEditingDesc, setIsEditingDesc] = useState(false);
   const [tempDesc, setTempDesc] = useState("");
 
+  // --- Persistence ---
   useEffect(() => {
-    localStorage.setItem("kanban-tasks", JSON.stringify(tasks));
-  }, [tasks]);
+    localStorage.setItem("kanban-boards", JSON.stringify(boards));
+    // We can clear the old keys to avoid confusion, or keep them as backup.
+    // For now, we just update the new key.
+  }, [boards]);
 
   useEffect(() => {
-    localStorage.setItem("kanban-notes", notes);
-  }, [notes]);
+    localStorage.setItem("kanban-active-board", activeBoardId);
+  }, [activeBoardId]);
 
-  // Actions
+  // --- Board Actions ---
+  const addBoard = () => {
+    const newBoard = {
+      id: crypto.randomUUID(),
+      name: "New Board",
+      tasks: [],
+      notes: "",
+    };
+    setBoards([...boards, newBoard]);
+    setActiveBoardId(newBoard.id);
+    // Automatically start editing name
+    setEditingBoardId(newBoard.id);
+  };
+
+  const deleteBoard = (e, id) => {
+    e.stopPropagation();
+    if (boards.length <= 1) {
+      alert("You must have at least one board.");
+      return;
+    }
+    const confirm = window.confirm(
+      "Are you sure? This will delete all tasks in this board.",
+    );
+    if (confirm) {
+      const newBoards = boards.filter((b) => b.id !== id);
+      setBoards(newBoards);
+      if (activeBoardId === id) {
+        setActiveBoardId(newBoards[0].id);
+      }
+    }
+  };
+
+  const renameBoard = (id, newName) => {
+    setBoards(boards.map((b) => b.id === id ? { ...b, name: newName } : b));
+    setEditingBoardId(null);
+  };
+
+  // --- Task Actions ---
   const handleSaveTask = (taskData) => {
     if (editingTask) {
-      setTasks(
-        tasks.map((t) => t.id === editingTask.id ? { ...t, ...taskData } : t),
+      setTasks((currentTasks) =>
+        currentTasks.map((t) =>
+          t.id === editingTask.id ? { ...t, ...taskData } : t
+        )
       );
     } else {
       const newTask = {
@@ -511,7 +606,7 @@ export default function App() {
         subtasks: [],
         ...taskData,
       };
-      setTasks([...tasks, newTask]);
+      setTasks((currentTasks) => [...currentTasks, newTask]);
     }
     setEditingTask(null);
   };
@@ -527,16 +622,12 @@ export default function App() {
   };
 
   const deleteTask = (id) => {
-    setTasks(tasks.filter((t) => t.id !== id));
-  };
-
-  const onDragStart = (id) => {
-    setDraggedTaskId(id);
+    setTasks((currentTasks) => currentTasks.filter((t) => t.id !== id));
   };
 
   const toggleSubtaskCompletion = (taskId, subtaskId) => {
-    setTasks((prev) =>
-      prev.map((t) => {
+    setTasks((currentTasks) =>
+      currentTasks.map((t) => {
         if (t.id !== taskId) return t;
         return {
           ...t,
@@ -548,6 +639,7 @@ export default function App() {
     );
   };
 
+  // --- Subtask Popover Logic ---
   const handleViewSubtask = (taskId, subtask) => {
     setViewingTaskId(taskId);
     setViewingSubtask(subtask);
@@ -555,24 +647,18 @@ export default function App() {
     setIsEditingDesc(false);
 
     if (popoverRef.current) {
-      // Native Popover API Method
       try {
         popoverRef.current.showPopover();
-      } catch (e) {
-        console.warn(
-          "Browser doesn't support native popover API yet, or popover is already open.",
-        );
-      }
+      } catch (e) {}
     }
   };
 
   const handleSaveSubtaskDescription = () => {
     if (!viewingTaskId || !viewingSubtask) return;
-
     const updatedSubtask = { ...viewingSubtask, description: tempDesc };
 
-    setTasks((prev) =>
-      prev.map((t) => {
+    setTasks((currentTasks) =>
+      currentTasks.map((t) => {
         if (t.id !== viewingTaskId) return t;
         return {
           ...t,
@@ -591,9 +677,7 @@ export default function App() {
     if (popoverRef.current) {
       try {
         popoverRef.current.hidePopover();
-      } catch (e) {
-        alert("failed to close popover");
-      }
+      } catch (e) {}
     }
     setViewingSubtask(null);
     setViewingTaskId(null);
@@ -611,7 +695,10 @@ export default function App() {
       if (type === "task") {
         setTasks((prev) => prev.map((t) => t.id === id ? { ...t, status } : t));
       } else if (type === "subtask") {
-        const parentTask = tasks.find((t) => t.id === parentId);
+        // Move subtask to main board
+        // 1. Find parent in CURRENT tasks
+        const currentTasks = activeBoard.tasks;
+        const parentTask = currentTasks.find((t) => t.id === parentId);
         if (!parentTask) return;
 
         const subtaskToPromote = parentTask.subtasks.find((s) => s.id === id);
@@ -636,7 +723,6 @@ export default function App() {
     } catch (err) {
       console.error("Column drop failed", err);
     }
-    setDraggedTaskId(null);
   };
 
   const handleTaskDrop = (draggedData, targetTaskId) => {
@@ -669,8 +755,6 @@ export default function App() {
       const targetTask = { ...newTasks[targetIndex] };
       if (!targetTask.subtasks) targetTask.subtasks = [];
 
-      // Ensure we clear status from subtask so it doesn't look weird if moved back out later
-      // But we keep completion status
       targetTask.subtasks = [...targetTask.subtasks, {
         ...taskToMove,
         status: "todo",
@@ -679,7 +763,6 @@ export default function App() {
 
       return newTasks;
     });
-    setDraggedTaskId(null);
   };
 
   const handleSubtaskReorder = (draggedData, targetParentId, targetIndex) => {
@@ -712,14 +795,24 @@ export default function App() {
 
   // Derived State
   const filteredTasks = useMemo(() => {
-    if (filter === "all") return tasks;
-    return tasks.filter((t) => getMatrixType(t.impact, t.effort) === filter);
-  }, [tasks, filter]);
+    if (!activeBoard) return [];
+    if (filter === "all") return activeBoard.tasks;
+    return activeBoard.tasks.filter((t) =>
+      getMatrixType(t.impact, t.effort) === filter
+    );
+  }, [activeBoard, filter]);
+
+  if (!activeBoard) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-zinc-500">
+        Loading...
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-zinc-200 font-sans selection:bg-blue-500/30 relative">
+    <div className="flex h-screen bg-zinc-950 text-zinc-200 font-sans selection:bg-blue-500/30 overflow-hidden">
       {/* --- NATIVE POPOVER API ELEMENT --- */}
-      {/* Note: 'popover' attribute is handled by browser. Tailwind 'backdrop:' targets the ::backdrop pseudo-element */}
       <div
         ref={popoverRef}
         popover="auto"
@@ -846,211 +939,309 @@ export default function App() {
         )}
       </div>
 
-      {/* Header */}
-      <header className="h-14 border-b border-zinc-800 bg-zinc-900/50 backdrop-blur-md flex items-center justify-between px-6 sticky top-0 z-10">
-        <div className="flex items-center gap-3">
+      {/* --- SIDEBAR --- */}
+      <aside
+        className={`${
+          isSidebarOpen ? "w-64 border-r" : "w-0 border-r-0"
+        } bg-zinc-900 border-zinc-800 flex flex-col flex-shrink-0 z-20 transition-all duration-300 ease-in-out overflow-hidden`}
+      >
+        <div className="h-14 flex items-center gap-3 px-4 border-b border-zinc-800/50 min-w-64">
           <div className="bg-blue-600/20 p-1.5 rounded-lg">
-            <Layout className="text-blue-500" size={20} />
+            <LayoutDashboard className="text-blue-500" size={20} />
           </div>
-          <h1 className="font-semibold text-zinc-100 tracking-tight">
+          <span className="font-semibold text-zinc-100 tracking-tight">
             FocusBoard
-          </h1>
+          </span>
         </div>
-        <div className="flex items-center gap-4">
-          {/* Filter Pills */}
-          <div className="hidden md:flex items-center bg-zinc-900 border border-zinc-800 rounded-lg p-1">
-            <div className="px-2 border-r border-zinc-800 mr-1 text-zinc-500">
-              <Filter size={14} />
-            </div>
-            <button
-              onClick={() => setFilter("all")}
-              className={`px-3 py-1 rounded text-xs font-medium transition-all ${
-                filter === "all"
-                  ? "bg-zinc-700 text-white"
-                  : "text-zinc-500 hover:text-zinc-300"
+
+        <div className="flex-1 overflow-y-auto py-3 px-2 space-y-1 min-w-64">
+          <div className="px-2 mb-2">
+            <h3 className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">
+              Your Boards
+            </h3>
+          </div>
+
+          {boards.map((board) => (
+            <div
+              key={board.id}
+              onClick={() => setActiveBoardId(board.id)}
+              className={`group flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer ${
+                activeBoardId === board.id
+                  ? "bg-zinc-800 text-white"
+                  : "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200"
               }`}
             >
-              All
+              {editingBoardId === board.id
+                ? (
+                  <input
+                    autoFocus
+                    type="text"
+                    defaultValue={board.name}
+                    onBlur={(e) => renameBoard(board.id, e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        renameBoard(board.id, e.currentTarget.value);
+                      }
+                    }}
+                    className="bg-zinc-950 border border-blue-500/50 rounded px-1.5 py-0.5 w-full text-zinc-200 outline-none"
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                )
+                : (
+                  <div className="flex items-center gap-2 truncate">
+                    <span className="truncate">{board.name}</span>
+                  </div>
+                )}
+
+              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setEditingBoardId(board.id);
+                  }}
+                  className="p-1 text-zinc-500 hover:text-blue-400 rounded"
+                  title="Rename"
+                >
+                  <Pencil size={12} />
+                </button>
+                <button
+                  onClick={(e) => deleteBoard(e, board.id)}
+                  className="p-1 text-zinc-500 hover:text-red-400 rounded"
+                  title="Delete"
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="p-3 border-t border-zinc-800/50 min-w-64">
+          <button
+            onClick={addBoard}
+            className="w-full flex items-center justify-center gap-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 py-2 rounded-lg text-sm font-medium transition-colors border border-zinc-700 hover:border-zinc-600"
+          >
+            <FolderPlus size={16} /> New Board
+          </button>
+        </div>
+      </aside>
+
+      {/* --- MAIN AREA --- */}
+      <div className="flex-1 flex flex-col min-w-0 bg-zinc-950 relative">
+        {/* Header */}
+        <header className="h-14 border-b border-zinc-800 bg-zinc-900/50 backdrop-blur-md flex items-center justify-between px-6 sticky top-0 z-10 shrink-0">
+          <div className="flex items-center gap-3 overflow-hidden">
+            <button
+              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              className="p-1.5 hover:bg-zinc-800 rounded-lg text-zinc-400 hover:text-zinc-100 transition-colors"
+            >
+              <Menu size={20} />
             </button>
-            {Object.entries(MATRIX_TYPES).map(([key, config]) => (
+            <h2 className="font-semibold text-zinc-100 truncate">
+              {activeBoard.name}
+            </h2>
+          </div>
+          <div className="flex items-center gap-4">
+            {/* Filter Pills */}
+            <div className="hidden md:flex items-center bg-zinc-900 border border-zinc-800 rounded-lg p-1">
+              <div className="px-2 border-r border-zinc-800 mr-1 text-zinc-500">
+                <Filter size={14} />
+              </div>
               <button
-                key={key}
-                onClick={() => setFilter(key)}
-                className={`px-3 py-1 rounded text-xs font-medium transition-all flex items-center gap-1.5 ${
-                  filter === key
+                onClick={() => setFilter("all")}
+                className={`px-3 py-1 rounded text-xs font-medium transition-all ${
+                  filter === "all"
                     ? "bg-zinc-700 text-white"
                     : "text-zinc-500 hover:text-zinc-300"
                 }`}
-                title={config.desc}
               >
-                <div
-                  className={`w-1.5 h-1.5 rounded-full ${
-                    config.color.replace("text-", "bg-")
-                  }`}
-                >
-                </div>
-                {config.label}
+                All
               </button>
-            ))}
-          </div>
-          <button
-            onClick={openAddModal}
-            className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors"
-          >
-            <Plus size={16} />{" "}
-            <span className="hidden sm:inline">New Task</span>
-          </button>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <div className="p-6 max-w-[1600px] mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6 h-[calc(100vh-3.5rem)]">
-        {/* Kanban Board Area */}
-        <div className="lg:col-span-8 flex flex-col h-full overflow-hidden">
-          <div className="flex-1 overflow-x-auto overflow-y-hidden">
-            <div className="flex h-full min-w-[800px] gap-4">
-              {COLUMNS.map((col) => (
-                <div
-                  key={col.id}
-                  className="flex-1 flex flex-col min-w-[280px] bg-zinc-900/50 rounded-xl border border-zinc-800/50"
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={(e) => handleColumnDrop(e, col.id)}
+              {Object.entries(MATRIX_TYPES).map(([key, config]) => (
+                <button
+                  key={key}
+                  onClick={() => setFilter(key)}
+                  className={`px-3 py-1 rounded text-xs font-medium transition-all flex items-center gap-1.5 ${
+                    filter === key
+                      ? "bg-zinc-700 text-white"
+                      : "text-zinc-500 hover:text-zinc-300"
+                  }`}
+                  title={config.desc}
                 >
-                  {/* Column Header */}
                   <div
-                    className={`p-4 border-b border-zinc-800 flex items-center justify-between sticky top-0 bg-zinc-900/95 backdrop-blur-sm rounded-t-xl z-10`}
+                    className={`w-1.5 h-1.5 rounded-full ${
+                      config.color.replace("text-", "bg-")
+                    }`}
                   >
-                    <div className="flex items-center gap-2">
-                      <div
-                        className={`w-2 h-2 rounded-full ${
-                          col.id === "todo"
-                            ? "bg-zinc-500"
-                            : col.id === "inprogress"
-                            ? "bg-blue-500"
-                            : "bg-emerald-500"
-                        }`}
-                      />
-                      <h2 className="font-medium text-zinc-300">{col.title}</h2>
-                      <span className="bg-zinc-800 text-zinc-500 px-2 py-0.5 rounded text-xs font-mono">
-                        {filteredTasks.filter((t) => t.status === col.id)
-                          .length}
-                      </span>
-                    </div>
                   </div>
-
-                  {/* Column Body */}
-                  <div className="flex-1 overflow-y-auto p-3 scrollbar-thin scrollbar-thumb-zinc-700 scrollbar-track-transparent">
-                    {filteredTasks.filter((t) => t.status === col.id).map(
-                      (task) => (
-                        <TaskCard
-                          key={task.id}
-                          task={task}
-                          onDragStart={onDragStart}
-                          onDelete={deleteTask}
-                          onEdit={openEditModal}
-                          onTaskDrop={handleTaskDrop}
-                          onSubtaskDrop={handleSubtaskReorder}
-                          onToggleSubtask={toggleSubtaskCompletion}
-                          onViewSubtask={handleViewSubtask}
-                        />
-                      )
-                    )}
-
-                    {filteredTasks.filter((t) => t.status === col.id).length ===
-                        0 && (
-                      <div className="h-24 border-2 border-dashed border-zinc-800 rounded-lg flex items-center justify-center text-zinc-600 text-sm">
-                        Drop items here
-                      </div>
-                    )}
-                  </div>
-                </div>
+                  {config.label}
+                </button>
               ))}
             </div>
+            <button
+              onClick={openAddModal}
+              className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-2 transition-colors shrink-0"
+            >
+              <Plus size={16} />{" "}
+              <span className="hidden sm:inline">New Task</span>
+            </button>
           </div>
-        </div>
+        </header>
 
-        {/* Sidebar: Notes & List */}
-        <div className="lg:col-span-4 flex flex-col gap-6 h-full overflow-hidden">
-          {/* Quick List */}
-          <div className="flex-1 bg-zinc-900/50 rounded-xl border border-zinc-800/50 flex flex-col min-h-[300px]">
-            <div className="p-4 border-b border-zinc-800 flex items-center gap-2">
-              <ListIcon size={16} className="text-zinc-400" />
-              <h3 className="font-medium text-zinc-300">Task List</h3>
-            </div>
-            <div className="flex-1 overflow-y-auto p-2 scrollbar-thin scrollbar-thumb-zinc-700">
-              {filteredTasks.length === 0
-                ? (
-                  <div className="text-center text-zinc-600 py-8 text-sm">
-                    No tasks found
-                  </div>
-                )
-                : (
-                  <div className="space-y-1">
-                    {filteredTasks.map((task) => (
+        {/* Content Scroll Area */}
+        <div className="flex-1 overflow-y-auto p-6 scrollbar-thin scrollbar-thumb-zinc-800">
+          <div className="max-w-[1600px] mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6 pb-20">
+            {/* Kanban Board Area */}
+            <div className="lg:col-span-8 flex flex-col min-h-[500px]">
+              <div className="flex-1 overflow-x-auto overflow-y-hidden">
+                <div className="flex h-full min-w-[800px] gap-4">
+                  {COLUMNS.map((col) => (
+                    <div
+                      key={col.id}
+                      className="flex-1 flex flex-col min-w-[280px] bg-zinc-900/50 rounded-xl border border-zinc-800/50"
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={(e) => handleColumnDrop(e, col.id)}
+                    >
+                      {/* Column Header */}
                       <div
-                        key={task.id}
-                        className="group flex items-center gap-3 p-2 hover:bg-zinc-800 rounded-lg transition-colors cursor-pointer"
+                        className={`p-4 border-b border-zinc-800 flex items-center justify-between sticky top-0 bg-zinc-900/95 backdrop-blur-sm rounded-t-xl z-10`}
                       >
-                        <button
-                          className={`shrink-0 transition-colors ${
-                            task.status === "done"
-                              ? "text-emerald-500"
-                              : "text-zinc-600 hover:text-zinc-400"
-                          }`}
-                        >
-                          {task.status === "done"
-                            ? <CheckCircle2 size={16} />
-                            : <Circle size={16} />}
-                        </button>
-                        <div className="flex-1 overflow-hidden">
+                        <div className="flex items-center gap-2">
                           <div
-                            className={`text-sm truncate ${
-                              task.status === "done"
-                                ? "text-zinc-600 line-through"
-                                : "text-zinc-300"
+                            className={`w-2 h-2 rounded-full ${
+                              col.id === "todo"
+                                ? "bg-zinc-500"
+                                : col.id === "inprogress"
+                                ? "bg-blue-500"
+                                : "bg-emerald-500"
                             }`}
-                          >
-                            {task.title}
-                          </div>
-                          {task.subtasks && task.subtasks.length > 0 && (
-                            <div className="text-[10px] text-zinc-500 mt-0.5">
-                              {task.subtasks.length}{" "}
-                              subtask{task.subtasks.length !== 1 ? "s" : ""}
-                            </div>
-                          )}
+                          />
+                          <h2 className="font-medium text-zinc-300">
+                            {col.title}
+                          </h2>
+                          <span className="bg-zinc-800 text-zinc-500 px-2 py-0.5 rounded text-xs font-mono">
+                            {filteredTasks.filter((t) => t.status === col.id)
+                              .length}
+                          </span>
                         </div>
-                        <div
-                          className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                            MATRIX_TYPES[
-                              getMatrixType(task.impact, task.effort)
-                            ].bg.replace("/10", "")
-                          }`}
-                        />
                       </div>
-                    ))}
-                  </div>
-                )}
-            </div>
-          </div>
 
-          {/* Notepad */}
-          <div className="h-1/2 min-h-[250px] bg-amber-100/5 rounded-xl border border-amber-900/20 flex flex-col">
-            <div className="p-3 border-b border-amber-900/20 flex items-center justify-between bg-amber-900/10 rounded-t-xl">
-              <div className="flex items-center gap-2 text-amber-500">
-                <StickyNote size={14} />
-                <span className="text-xs font-semibold uppercase tracking-wider">
-                  Scratchpad
-                </span>
+                      {/* Column Body */}
+                      <div className="flex-1 overflow-y-auto p-3 scrollbar-thin scrollbar-thumb-zinc-700 scrollbar-track-transparent min-h-[200px]">
+                        {filteredTasks.filter((t) => t.status === col.id).map(
+                          (task) => (
+                            <TaskCard
+                              key={task.id}
+                              task={task}
+                              onDelete={deleteTask}
+                              onEdit={openEditModal}
+                              onTaskDrop={handleTaskDrop}
+                              onSubtaskDrop={handleSubtaskReorder}
+                              onToggleSubtask={toggleSubtaskCompletion}
+                              onViewSubtask={handleViewSubtask}
+                            />
+                          ),
+                        )}
+
+                        {filteredTasks.filter((t) => t.status === col.id)
+                              .length === 0 && (
+                          <div className="h-24 border-2 border-dashed border-zinc-800 rounded-lg flex items-center justify-center text-zinc-600 text-sm">
+                            Drop items here
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
-              <span className="text-[10px] text-amber-500/60">Auto-saving</span>
             </div>
-            <textarea
-              className="flex-1 w-full bg-transparent resize-none p-4 text-zinc-300 placeholder-zinc-600 focus:outline-none text-sm leading-relaxed"
-              placeholder="Jot down quick thoughts, meeting notes, or ideas here..."
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              spellCheck={false}
-            />
+
+            {/* Sidebar: Notes & List */}
+            <div className="lg:col-span-4 flex flex-col gap-6">
+              {/* Quick List */}
+              <div className="bg-zinc-900/50 rounded-xl border border-zinc-800/50 flex flex-col min-h-[300px] max-h-[500px]">
+                <div className="p-4 border-b border-zinc-800 flex items-center gap-2">
+                  <ListIcon size={16} className="text-zinc-400" />
+                  <h3 className="font-medium text-zinc-300">Task List</h3>
+                </div>
+                <div className="flex-1 overflow-y-auto p-2 scrollbar-thin scrollbar-thumb-zinc-700">
+                  {filteredTasks.length === 0
+                    ? (
+                      <div className="text-center text-zinc-600 py-8 text-sm">
+                        No tasks found
+                      </div>
+                    )
+                    : (
+                      <div className="space-y-1">
+                        {filteredTasks.map((task) => (
+                          <div
+                            key={task.id}
+                            className="group flex items-center gap-3 p-2 hover:bg-zinc-800 rounded-lg transition-colors cursor-pointer"
+                          >
+                            <button
+                              className={`shrink-0 transition-colors ${
+                                task.status === "done"
+                                  ? "text-emerald-500"
+                                  : "text-zinc-600 hover:text-zinc-400"
+                              }`}
+                            >
+                              {task.status === "done"
+                                ? <CheckCircle2 size={16} />
+                                : <Circle size={16} />}
+                            </button>
+                            <div className="flex-1 overflow-hidden">
+                              <div
+                                className={`text-sm truncate ${
+                                  task.status === "done"
+                                    ? "text-zinc-600 line-through"
+                                    : "text-zinc-300"
+                                }`}
+                              >
+                                {task.title}
+                              </div>
+                              {task.subtasks && task.subtasks.length > 0 && (
+                                <div className="text-[10px] text-zinc-500 mt-0.5">
+                                  {task.subtasks.length}{" "}
+                                  subtask{task.subtasks.length !== 1 ? "s" : ""}
+                                </div>
+                              )}
+                            </div>
+                            <div
+                              className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                                MATRIX_TYPES[
+                                  getMatrixType(task.impact, task.effort)
+                                ].bg.replace("/10", "")
+                              }`}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                </div>
+              </div>
+
+              {/* Notepad */}
+              <div className="min-h-[300px] bg-amber-100/5 rounded-xl border border-amber-900/20 flex flex-col">
+                <div className="p-3 border-b border-amber-900/20 flex items-center justify-between bg-amber-900/10 rounded-t-xl">
+                  <div className="flex items-center gap-2 text-amber-500">
+                    <StickyNote size={14} />
+                    <span className="text-xs font-semibold uppercase tracking-wider">
+                      Scratchpad
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-amber-500/60">
+                    Auto-saving
+                  </span>
+                </div>
+                <textarea
+                  className="flex-1 w-full bg-transparent resize-none p-4 text-zinc-300 placeholder-zinc-600 focus:outline-none text-sm leading-relaxed"
+                  placeholder="Jot down quick thoughts, meeting notes, or ideas here..."
+                  value={activeBoard.notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  spellCheck={false}
+                />
+              </div>
+            </div>
           </div>
         </div>
       </div>
