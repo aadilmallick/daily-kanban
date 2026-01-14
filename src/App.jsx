@@ -1,13 +1,7 @@
-import React, {
-  startTransition,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useTransition,
-} from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
+  AlertTriangle,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -84,6 +78,41 @@ const getMatrixType = (impact, effort) => {
 };
 
 // --- Components ---
+
+const ConfirmationModal = ({ isOpen, onClose, onConfirm, title, message }) => {
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+      <div className="bg-zinc-900 border border-zinc-700 rounded-xl w-full max-w-sm shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+        <div className="p-6">
+          <div className="flex items-center gap-3 mb-4 text-amber-500">
+            <div className="bg-amber-500/10 p-2 rounded-full">
+              <AlertTriangle size={24} />
+            </div>
+            <h3 className="text-lg font-semibold text-zinc-100">{title}</h3>
+          </div>
+          <p className="text-zinc-400 text-sm leading-relaxed mb-6">
+            {message}
+          </p>
+          <div className="flex justify-end gap-3">
+            <button
+              onClick={onClose}
+              className="px-4 py-2 text-sm font-medium text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 rounded-lg transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={onConfirm}
+              className="px-4 py-2 text-sm font-medium bg-red-500/10 text-red-400 border border-red-500/50 hover:bg-red-500 hover:text-white rounded-lg transition-all"
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const TaskCard = (
   {
@@ -297,7 +326,7 @@ const AddTaskModal = ({ isOpen, onClose, onSave, taskToEdit }) => {
   const [effort, setEffort] = useState("low");
   const [impact, setImpact] = useState("low");
   const [url, setUrl] = useState("");
-  const [isPending, startTransition] = useTransition();
+  const [isPending, startTransition] = React.useTransition();
 
   useEffect(() => {
     if (isOpen) {
@@ -484,6 +513,7 @@ export default function App() {
     }];
     return initialBoards;
   });
+  const [isPending, startTransition] = React.useTransition();
 
   const [activeBoardId, setActiveBoardId] = useState(() => {
     return localStorage.getItem("kanban-active-board") || "default-board";
@@ -535,6 +565,12 @@ export default function App() {
   const [editingTask, setEditingTask] = useState(null);
   const [filter, setFilter] = useState("all");
   const [editingBoardId, setEditingBoardId] = useState(null);
+
+  // Confirmation Modal State
+  const [deleteModal, setDeleteModal] = useState({
+    isOpen: false,
+    taskId: null,
+  });
 
   // Popover State & Refs
   const popoverRef = useRef(null);
@@ -621,8 +657,17 @@ export default function App() {
     setIsModalOpen(true);
   };
 
-  const deleteTask = (id) => {
-    setTasks((currentTasks) => currentTasks.filter((t) => t.id !== id));
+  const requestDeleteTask = (id) => {
+    setDeleteModal({ isOpen: true, taskId: id });
+  };
+
+  const confirmDeleteTask = () => {
+    if (deleteModal.taskId) {
+      setTasks((currentTasks) =>
+        currentTasks.filter((t) => t.id !== deleteModal.taskId)
+      );
+    }
+    setDeleteModal({ isOpen: false, taskId: null });
   };
 
   const toggleSubtaskCompletion = (taskId, subtaskId) => {
@@ -696,7 +741,6 @@ export default function App() {
         setTasks((prev) => prev.map((t) => t.id === id ? { ...t, status } : t));
       } else if (type === "subtask") {
         // Move subtask to main board
-        // 1. Find parent in CURRENT tasks
         const currentTasks = activeBoard.tasks;
         const parentTask = currentTasks.find((t) => t.id === parentId);
         if (!parentTask) return;
@@ -793,6 +837,109 @@ export default function App() {
     });
   };
 
+  const handleBoardDragStart = (e, boardId) => {
+    e.dataTransfer.setData(
+      "application/json",
+      JSON.stringify({
+        id: boardId,
+        type: "board",
+      }),
+    );
+    e.dataTransfer.effectAllowed = "move";
+  };
+
+  const handleBoardDrop = (e, targetBoardId) => {
+    e.preventDefault();
+
+    try {
+      const data = JSON.parse(e.dataTransfer.getData("application/json"));
+      const { id, type, parentId } = data;
+
+      // --- 1. REORDER BOARDS ---
+      if (type === "board") {
+        const sourceIndex = boards.findIndex((b) => b.id === id);
+        const targetIndex = boards.findIndex((b) => b.id === targetBoardId);
+
+        if (
+          sourceIndex === -1 || targetIndex === -1 ||
+          sourceIndex === targetIndex
+        ) return;
+
+        setBoards((prev) => {
+          const newBoards = [...prev];
+          const [moved] = newBoards.splice(sourceIndex, 1);
+          newBoards.splice(targetIndex, 0, moved);
+          return newBoards;
+        });
+        return;
+      }
+
+      // --- 2. MOVE TASK TO BOARD ---
+      if (targetBoardId === activeBoardId) return;
+
+      setBoards((prevBoards) => {
+        const newBoards = [...prevBoards];
+        const sourceBoardIndex = newBoards.findIndex((b) =>
+          b.id === activeBoardId
+        );
+        const targetBoardIndex = newBoards.findIndex((b) =>
+          b.id === targetBoardId
+        );
+
+        if (sourceBoardIndex === -1 || targetBoardIndex === -1) {
+          return prevBoards;
+        }
+
+        const sourceBoard = { ...newBoards[sourceBoardIndex] };
+        const targetBoard = { ...newBoards[targetBoardIndex] };
+
+        let taskToMove;
+
+        // Find and remove from source
+        if (type === "task") {
+          taskToMove = sourceBoard.tasks.find((t) => t.id === id);
+          if (!taskToMove) return prevBoards;
+          sourceBoard.tasks = sourceBoard.tasks.filter((t) => t.id !== id);
+        } else if (type === "subtask") {
+          const parentTask = sourceBoard.tasks.find((t) => t.id === parentId);
+          if (!parentTask) return prevBoards;
+
+          taskToMove = parentTask.subtasks.find((s) => s.id === id);
+          if (!taskToMove) return prevBoards;
+
+          // Update parent task in source board
+          sourceBoard.tasks = sourceBoard.tasks.map((t) => {
+            if (t.id === parentId) {
+              return {
+                ...t,
+                subtasks: t.subtasks.filter((s) => s.id !== id),
+              };
+            }
+            return t;
+          });
+        }
+
+        if (!taskToMove) return prevBoards;
+
+        // Add to target (unnest if it was a subtask)
+        const movedTask = {
+          ...taskToMove,
+          status: "todo", // Default to todo column in new board
+          subtasks: taskToMove.subtasks || [],
+        };
+
+        targetBoard.tasks = [...targetBoard.tasks, movedTask];
+
+        newBoards[sourceBoardIndex] = sourceBoard;
+        newBoards[targetBoardIndex] = targetBoard;
+
+        return newBoards;
+      });
+    } catch (err) {
+      console.error("Board drop failed", err);
+    }
+  };
+
   // Derived State
   const filteredTasks = useMemo(() => {
     if (!activeBoard) return [];
@@ -812,6 +959,15 @@ export default function App() {
 
   return (
     <div className="flex h-screen bg-zinc-950 text-zinc-200 font-sans selection:bg-blue-500/30 overflow-hidden">
+      {/* Confirmation Modal */}
+      <ConfirmationModal
+        isOpen={deleteModal.isOpen}
+        onClose={() => setDeleteModal({ isOpen: false, taskId: null })}
+        onConfirm={confirmDeleteTask}
+        title="Delete Task"
+        message="Are you sure you want to delete this task? This action cannot be undone."
+      />
+
       {/* --- NATIVE POPOVER API ELEMENT --- */}
       <div
         ref={popoverRef}
@@ -964,13 +1120,45 @@ export default function App() {
           {boards.map((board) => (
             <div
               key={board.id}
+              draggable={editingBoardId !== board.id}
+              onDragStart={(e) => handleBoardDragStart(e, board.id)}
               onClick={() => setActiveBoardId(board.id)}
-              className={`group flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer ${
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.currentTarget.classList.add(
+                  "bg-zinc-800/80",
+                  "ring-1",
+                  "ring-blue-500/50",
+                );
+              }}
+              onDragLeave={(e) => {
+                e.currentTarget.classList.remove(
+                  "bg-zinc-800/80",
+                  "ring-1",
+                  "ring-blue-500/50",
+                );
+              }}
+              onDrop={(e) => {
+                e.currentTarget.classList.remove(
+                  "bg-zinc-800/80",
+                  "ring-1",
+                  "ring-blue-500/50",
+                );
+                handleBoardDrop(e, board.id);
+              }}
+              className={`group flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-all cursor-pointer ${
                 activeBoardId === board.id
                   ? "bg-zinc-800 text-white"
                   : "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200"
               }`}
             >
+              <div
+                className="mr-2 text-zinc-600 group-hover:text-zinc-400 cursor-grab active:cursor-grabbing"
+                title="Drag to reorder"
+              >
+                <GripVertical size={12} />
+              </div>
+
               {editingBoardId === board.id
                 ? (
                   <input
@@ -988,7 +1176,7 @@ export default function App() {
                   />
                 )
                 : (
-                  <div className="flex items-center gap-2 truncate">
+                  <div className="flex-1 flex items-center gap-2 truncate pointer-events-none">
                     <span className="truncate">{board.name}</span>
                   </div>
                 )}
@@ -1133,7 +1321,7 @@ export default function App() {
                             <TaskCard
                               key={task.id}
                               task={task}
-                              onDelete={deleteTask}
+                              onDelete={requestDeleteTask}
                               onEdit={openEditModal}
                               onTaskDrop={handleTaskDrop}
                               onSubtaskDrop={handleSubtaskReorder}
