@@ -1,0 +1,89 @@
+
+> daily-kanban@0.0.0 lint
+> eslint .
+
+
+/app/dev-dist/sw.js
+  34:13  error  'importScripts' is not defined  no-undef
+  70:1   error  'define' is not defined         no-undef
+
+/app/dev-dist/workbox-ca84f546.js
+     1:1   error    'define' is not defined                                                         no-undef
+     5:37  error    '_' is not defined                                                              no-undef
+     6:14  error    'e' is defined but never used                                                   no-unused-vars
+     6:17  error    Empty block statement                                                           no-empty
+    52:7   error    Definition for rule '@typescript-eslint/ban-types' was not found                @typescript-eslint/ban-types
+   419:5   error    Definition for rule '@typescript-eslint/ban-types' was not found                @typescript-eslint/ban-types
+   435:5   warning  Unused eslint-disable directive (no problems were reported)
+   458:40  error    '_' is not defined                                                              no-undef
+   459:14  error    'e' is defined but never used                                                   no-unused-vars
+   459:17  error    Empty block statement                                                           no-empty
+   752:11  error    Definition for rule '@typescript-eslint/no-unsafe-member-access' was not found  @typescript-eslint/no-unsafe-member-access
+   754:13  error    Definition for rule '@typescript-eslint/no-unsafe-assignment' was not found     @typescript-eslint/no-unsafe-assignment
+   948:11  error    Definition for rule '@typescript-eslint/no-unsafe-assignment' was not found     @typescript-eslint/no-unsafe-assignment
+   964:13  error    Definition for rule '@typescript-eslint/no-unsafe-assignment' was not found     @typescript-eslint/no-unsafe-assignment
+   970:13  warning  Unused eslint-disable directive (no problems were reported)
+  1197:53  error    'registration' is not defined                                                   no-undef
+  1257:5   error    Definition for rule '@typescript-eslint/ban-types' was not found                @typescript-eslint/ban-types
+  1275:5   error    Definition for rule '@typescript-eslint/ban-types' was not found                @typescript-eslint/ban-types
+  1291:14  error    '_extends' is a function                                                        no-func-assign
+  1545:43  error    '_' is not defined                                                              no-undef
+  1546:14  error    'e' is defined but never used                                                   no-unused-vars
+  1546:17  error    Empty block statement                                                           no-empty
+  1967:22  error    'error' is defined but never used                                               no-unused-vars
+  2139:51  error    '_' is not defined                                                              no-undef
+  2140:14  error    'e' is defined but never used                                                   no-unused-vars
+  2140:17  error    Empty block statement                                                           no-empty
+  2423:43  error    '_' is not defined                                                              no-undef
+  2424:14  error    'e' is defined but never used                                                   no-unused-vars
+  2424:17  error    Empty block statement                                                           no-empty
+  2502:56  error    'ExtendableEvent' is not defined                                                no-undef
+  2541:61  error    'FetchEvent' is not defined                                                     no-undef
+  2576:15  error    Unexpected constant condition                                                   no-constant-condition
+  2768:35  warning  Unused eslint-disable directive (no problems were reported)
+  3042:32  error    'FetchEvent' is not defined                                                     no-undef
+  3110:18  error    'error' is defined but never used                                               no-unused-vars
+  3297:43  error    '_' is not defined                                                              no-undef
+  3298:14  error    'e' is defined but never used                                                   no-unused-vars
+  3298:17  error    Empty block statement                                                           no-empty
+  3431:11  warning  Unused eslint-disable directive (no problems were reported)
+  3546:20  error    'error' is defined but never used                                               no-unused-vars
+  3951:9   error    Definition for rule '@typescript-eslint/no-unsafe-return' was not found         @typescript-eslint/no-unsafe-return
+  3998:9   error    Definition for rule '@typescript-eslint/no-unsafe-return' was not found         @typescript-eslint/no-unsafe-return
+
+/app/src/App.jsx
+  373:9   error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+  371 |     if (isOpen) {
+  372 |       if (taskToEdit) {
+> 373 |         setTitle(taskToEdit.title);
+      |         ^^^^^^^^ Avoid calling setState() directly within an effect
+  374 |         setDescription(taskToEdit.description || "");
+  375 |         setEffort(taskToEdit.effort);
+  376 |         setImpact(taskToEdit.impact);  react-hooks/set-state-in-effect
+  520:7   error  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+  518 |   useEffect(() => {
+  519 |     if (isOpen && task) {
+> 520 |       setSelectedBoardIds(task.synced_board_ids || []);
+      |       ^^^^^^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  521 |     }
+  522 |   }, [isOpen, task]);
+  523 |                                                                       react-hooks/set-state-in-effect
+  880:15  error  Empty block statement                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           no-empty
+  911:15  error  Empty block statement                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           no-empty
+
+✖ 48 problems (44 errors, 4 warnings)
+  0 errors and 4 warnings potentially fixable with the `--fix` option.
