@@ -19,6 +19,7 @@ import {
   MoreVertical,
   Pencil,
   Plus,
+  RefreshCw,
   Save,
   StickyNote,
   Target,
@@ -28,6 +29,33 @@ import {
 } from "lucide-react";
 
 // --- Constants & Utilities ---
+
+export class LocalStorageBrowser {
+  constructor(prefix = "") {
+    this.prefix = prefix;
+  }
+
+  getKey(key) {
+    return this.prefix + key;
+  }
+
+  set(key, value) {
+    window.localStorage.setItem(this.getKey(key), JSON.stringify(value));
+  }
+
+  get(key) {
+    const item = window.localStorage.getItem(this.getKey(key));
+    return item ? JSON.parse(item) : null;
+  }
+
+  removeItem(key) {
+    window.localStorage.removeItem(this.getKey(key));
+  }
+
+  clear() {
+    window.localStorage.clear();
+  }
+}
 
 const COLUMNS = [
   { id: "todo", title: "To Do", color: "border-zinc-600" },
@@ -119,6 +147,7 @@ const TaskCard = (
     task,
     onDelete,
     onEdit,
+    onSync,
     onTaskDrop,
     onSubtaskDrop,
     onToggleSubtask,
@@ -136,6 +165,7 @@ const TaskCard = (
         id: task.id,
         type: "task",
         parentId: null,
+        isSyncedTask: task.isSyncedTask,
       }),
     );
     e.dataTransfer.effectAllowed = "move";
@@ -193,6 +223,16 @@ const TaskCard = (
           {matrix.label}
         </div>
         <div className="flex items-center gap-1">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onSync(task);
+            }}
+            className="text-zinc-600 hover:text-blue-400 opacity-0 group-hover:opacity-100 transition-opacity"
+            title="Sync Across Boards"
+          >
+            <RefreshCw size={14} />
+          </button>
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -281,7 +321,7 @@ const TaskCard = (
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      onToggleSubtask(task.id, sub.id);
+                      onToggleSubtask(task.id, sub.id, task.isSyncedTask);
                     }}
                     className={`shrink-0 w-3.5 h-3.5 rounded border flex items-center justify-center transition-colors ${
                       sub.completed
@@ -293,15 +333,15 @@ const TaskCard = (
                   </button>
 
                   <span
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onViewSubtask(task.id, sub);
-                    }}
                     className={`text-xs flex-1 truncate cursor-pointer hover:text-blue-400 transition-colors ${
                       sub.completed
                         ? "text-zinc-500 line-through"
                         : "text-zinc-300"
                     }`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onViewSubtask(task.id, sub, task.isSyncedTask);
+                    }}
                   >
                     {sub.title}
                   </span>
@@ -326,26 +366,21 @@ const AddTaskModal = ({ isOpen, onClose, onSave, taskToEdit }) => {
   const [effort, setEffort] = useState("low");
   const [impact, setImpact] = useState("low");
   const [url, setUrl] = useState("");
-  const [isPending, startTransition] = React.useTransition();
 
   useEffect(() => {
     if (isOpen) {
       if (taskToEdit) {
-        startTransition(() => {
-          setTitle(taskToEdit.title);
-          setDescription(taskToEdit.description || "");
-          setEffort(taskToEdit.effort);
-          setImpact(taskToEdit.impact);
-          setUrl(taskToEdit.url || "");
-        });
+        setTitle(taskToEdit.title);
+        setDescription(taskToEdit.description || "");
+        setEffort(taskToEdit.effort);
+        setImpact(taskToEdit.impact);
+        setUrl(taskToEdit.url || "");
       } else {
-        startTransition(() => {
-          setTitle("");
-          setDescription("");
-          setEffort("low");
-          setImpact("low");
-          setUrl("");
-        });
+        setTitle("");
+        setDescription("");
+        setEffort("low");
+        setImpact("low");
+        setUrl("");
       }
     }
   }, [isOpen, taskToEdit]);
@@ -477,15 +512,86 @@ const AddTaskModal = ({ isOpen, onClose, onSave, taskToEdit }) => {
   );
 };
 
+const SyncModal = ({ isOpen, onClose, task, boards, onSync }) => {
+  const [selectedBoardIds, setSelectedBoardIds] = useState([]);
+
+  useEffect(() => {
+    if (isOpen && task) {
+      setSelectedBoardIds(task.synced_board_ids || []);
+    }
+  }, [isOpen, task]);
+
+  if (!isOpen || !task) return null;
+
+  const handleToggleBoard = (boardId) => {
+    setSelectedBoardIds((prev) =>
+      prev.includes(boardId)
+        ? prev.filter((id) => id !== boardId)
+        : [...prev, boardId]
+    );
+  };
+
+  const handleSync = () => {
+    onSync(task.id, selectedBoardIds);
+    onClose();
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+      <div className="bg-zinc-900 border border-zinc-700 rounded-xl w-full max-w-sm shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+        <div className="p-4 border-b border-zinc-800 flex justify-between items-center">
+          <h3 className="text-zinc-100 font-medium">Sync Task Across Boards</h3>
+          <button
+            onClick={onClose}
+            className="text-zinc-500 hover:text-zinc-300"
+          >
+            <X size={18} />
+          </button>
+        </div>
+        <div className="p-4">
+          <p className="text-xs text-zinc-400 mb-4">
+            Select boards where this task should appear and stay synced.
+          </p>
+          <div className="max-h-60 overflow-y-auto space-y-2 mb-6 pr-2 scrollbar-thin scrollbar-thumb-zinc-800">
+            {boards.map((board) => (
+              <label
+                key={board.id}
+                className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-zinc-800/50 cursor-pointer transition-colors border border-transparent hover:border-zinc-700"
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedBoardIds.includes(board.id)}
+                  onChange={() => handleToggleBoard(board.id)}
+                  className="w-4 h-4 rounded border-zinc-700 bg-zinc-950 text-blue-600 focus:ring-blue-500 focus:ring-offset-zinc-900"
+                />
+                <span className="text-sm text-zinc-200">{board.name}</span>
+              </label>
+            ))}
+          </div>
+          <button
+            onClick={handleSync}
+            className="w-full bg-blue-600 hover:bg-blue-500 text-white rounded-lg py-2.5 text-sm font-medium transition-colors shadow-lg shadow-blue-900/20"
+          >
+            Sync
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // --- Main App Component ---
+
+const storage = new LocalStorageBrowser("kanban-");
 
 export default function App() {
   // --- State Initialization with Migration Logic ---
   const [boards, setBoards] = useState(() => {
     const savedBoards = localStorage.getItem("kanban-boards");
+    let initialBoards;
     if (savedBoards) {
-      return JSON.parse(savedBoards);
-    }
+      initialBoards = JSON.parse(savedBoards);
+    } else {
 
     // Migration logic for existing users
     const oldTasks = localStorage.getItem("kanban-tasks");
@@ -504,16 +610,24 @@ export default function App() {
 
     const oldNotes = localStorage.getItem("kanban-notes") || "";
 
-    // Create a default board with old data
-    const initialBoards = [{
-      id: "default-board",
-      name: "Main Board",
-      tasks: tasks,
-      notes: oldNotes,
-    }];
-    return initialBoards;
+      // Create a default board with old data
+      initialBoards = [{
+        id: "default-board",
+        name: "Main Board",
+        tasks: tasks,
+        notes: oldNotes,
+      }];
+    }
+
+    // Ensure all tasks have synced_board_ids
+    return initialBoards.map(board => ({
+      ...board,
+      tasks: board.tasks.map(task => ({
+        ...task,
+        synced_board_ids: task.synced_board_ids || []
+      }))
+    }));
   });
-  const [isPending, startTransition] = React.useTransition();
 
   const [activeBoardId, setActiveBoardId] = useState(() => {
     return localStorage.getItem("kanban-active-board") || "default-board";
@@ -521,14 +635,33 @@ export default function App() {
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
+  const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
+  const [taskToSync, setTaskToSync] = useState(null);
+
   // Ensure activeBoardId is valid
-  useEffect(() => {
-    if (boards.length > 0 && !boards.find((b) => b.id === activeBoardId)) {
-      startTransition(() => {
-        setActiveBoardId(boards[0].id);
+  if (boards.length > 0 && !boards.find((b) => b.id === activeBoardId)) {
+    setActiveBoardId(boards[0].id);
+  }
+
+  const syncedTasksFromOthers = useMemo(() => {
+    const syncedIds = storage.get("synced_tasks_id") || [];
+    const others = [];
+
+    boards.forEach((board) => {
+      if (board.id === activeBoardId) return;
+      board.tasks.forEach((task) => {
+        if (
+          syncedIds.includes(task.id) &&
+          task.synced_board_ids &&
+          task.synced_board_ids.includes(activeBoardId)
+        ) {
+          others.push({ ...task, isSyncedTask: true });
+        }
       });
-    }
-  }, [boards, activeBoardId]);
+    });
+
+    return others;
+  }, [activeBoardId, boards]);
 
   // Derived state for the CURRENT board
   const activeBoard = useMemo(() => {
@@ -575,6 +708,7 @@ export default function App() {
   // Popover State & Refs
   const popoverRef = useRef(null);
   const [viewingSubtask, setViewingSubtask] = useState(null);
+  const [viewingSubtaskIsSynced, setViewingSubtaskIsSynced] = useState(false);
   const [viewingTaskId, setViewingTaskId] = useState(null);
   const [isEditingDesc, setIsEditingDesc] = useState(false);
   const [tempDesc, setTempDesc] = useState("");
@@ -627,14 +761,48 @@ export default function App() {
     setEditingBoardId(null);
   };
 
+  // --- Global Task Helpers ---
+  const updateTaskGlobally = (taskId, updatesOrFn) => {
+    setBoards((prevBoards) =>
+      prevBoards.map((board) => ({
+        ...board,
+        tasks: board.tasks.map((task) => {
+          if (task.id === taskId) {
+            return typeof updatesOrFn === "function"
+              ? updatesOrFn(task)
+              : { ...task, ...updatesOrFn };
+          }
+          return task;
+        }),
+      }))
+    );
+  };
+
+  const handleSync = (taskId, selectedBoardIds) => {
+    updateTaskGlobally(taskId, { synced_board_ids: selectedBoardIds });
+
+    const syncedIds = storage.get("synced_tasks_id") || [];
+    if (selectedBoardIds.length > 0) {
+      if (!syncedIds.includes(taskId)) {
+        storage.set("synced_tasks_id", [...syncedIds, taskId]);
+      }
+    } else {
+      storage.set("synced_tasks_id", syncedIds.filter((id) => id !== taskId));
+    }
+  };
+
   // --- Task Actions ---
   const handleSaveTask = (taskData) => {
     if (editingTask) {
-      setTasks((currentTasks) =>
-        currentTasks.map((t) =>
-          t.id === editingTask.id ? { ...t, ...taskData } : t
-        )
-      );
+      if (editingTask.isSyncedTask) {
+        updateTaskGlobally(editingTask.id, taskData);
+      } else {
+        setTasks((currentTasks) =>
+          currentTasks.map((t) =>
+            t.id === editingTask.id ? { ...t, ...taskData } : t
+          )
+        );
+      }
     } else {
       const newTask = {
         id: crypto.randomUUID(),
@@ -663,56 +831,74 @@ export default function App() {
 
   const confirmDeleteTask = () => {
     if (deleteModal.taskId) {
-      setTasks((currentTasks) =>
-        currentTasks.filter((t) => t.id !== deleteModal.taskId)
+      setBoards((prevBoards) =>
+        prevBoards.map((board) => ({
+          ...board,
+          tasks: board.tasks.filter((t) => t.id !== deleteModal.taskId),
+        }))
       );
+      // Also cleanup storage if it was synced
+      const syncedIds = storage.get("synced_tasks_id") || [];
+      if (syncedIds.includes(deleteModal.taskId)) {
+        storage.set(
+          "synced_tasks_id",
+          syncedIds.filter((id) => id !== deleteModal.taskId),
+        );
+      }
     }
     setDeleteModal({ isOpen: false, taskId: null });
   };
 
-  const toggleSubtaskCompletion = (taskId, subtaskId) => {
-    setTasks((currentTasks) =>
-      currentTasks.map((t) => {
-        if (t.id !== taskId) return t;
-        return {
-          ...t,
-          subtasks: t.subtasks.map((s) =>
-            s.id === subtaskId ? { ...s, completed: !s.completed } : s
-          ),
-        };
-      })
-    );
+  const toggleSubtaskCompletion = (taskId, subtaskId, isSynced) => {
+    const updateFn = (t) => ({
+      ...t,
+      subtasks: t.subtasks.map((s) =>
+        s.id === subtaskId ? { ...s, completed: !s.completed } : s
+      ),
+    });
+
+    if (isSynced) {
+      updateTaskGlobally(taskId, updateFn);
+    } else {
+      setTasks((currentTasks) =>
+        currentTasks.map((t) => (t.id === taskId ? updateFn(t) : t))
+      );
+    }
   };
 
   // --- Subtask Popover Logic ---
-  const handleViewSubtask = (taskId, subtask) => {
+  const handleViewSubtask = (taskId, subtask, isSynced) => {
     setViewingTaskId(taskId);
     setViewingSubtask(subtask);
+    setViewingSubtaskIsSynced(!!isSynced);
     setTempDesc(subtask.description || "");
     setIsEditingDesc(false);
 
     if (popoverRef.current) {
       try {
         popoverRef.current.showPopover();
-      } catch (e) {}
+      } catch {}
     }
   };
 
-  const handleSaveSubtaskDescription = () => {
+  const handleSaveSubtaskDescription = (isSynced) => {
     if (!viewingTaskId || !viewingSubtask) return;
     const updatedSubtask = { ...viewingSubtask, description: tempDesc };
 
-    setTasks((currentTasks) =>
-      currentTasks.map((t) => {
-        if (t.id !== viewingTaskId) return t;
-        return {
-          ...t,
-          subtasks: t.subtasks.map((s) =>
-            s.id === viewingSubtask.id ? updatedSubtask : s
-          ),
-        };
-      })
-    );
+    const updateFn = (t) => ({
+      ...t,
+      subtasks: t.subtasks.map((s) =>
+        s.id === viewingSubtask.id ? updatedSubtask : s
+      ),
+    });
+
+    if (isSynced) {
+      updateTaskGlobally(viewingTaskId, updateFn);
+    } else {
+      setTasks((currentTasks) =>
+        currentTasks.map((t) => (t.id === viewingTaskId ? updateFn(t) : t))
+      );
+    }
 
     setViewingSubtask(updatedSubtask);
     setIsEditingDesc(false);
@@ -722,7 +908,7 @@ export default function App() {
     if (popoverRef.current) {
       try {
         popoverRef.current.hidePopover();
-      } catch (e) {}
+      } catch {}
     }
     setViewingSubtask(null);
     setViewingTaskId(null);
@@ -735,34 +921,46 @@ export default function App() {
     e.preventDefault();
     try {
       const data = JSON.parse(e.dataTransfer.getData("application/json"));
-      const { id, type, parentId } = data;
+      const { id, type, parentId, isSyncedTask } = data;
 
       if (type === "task") {
-        setTasks((prev) => prev.map((t) => t.id === id ? { ...t, status } : t));
+        if (isSyncedTask) {
+          updateTaskGlobally(id, { status });
+        } else {
+          setTasks((prev) =>
+            prev.map((t) => (t.id === id ? { ...t, status } : t))
+          );
+        }
       } else if (type === "subtask") {
         // Move subtask to main board
-        const currentTasks = activeBoard.tasks;
-        const parentTask = currentTasks.find((t) => t.id === parentId);
+        const allPossibleTasks = [...activeBoard.tasks, ...syncedTasksFromOthers];
+        const parentTask = allPossibleTasks.find((t) => t.id === parentId);
         if (!parentTask) return;
 
         const subtaskToPromote = parentTask.subtasks.find((s) => s.id === id);
         if (!subtaskToPromote) return;
 
-        const newParent = {
-          ...parentTask,
-          subtasks: parentTask.subtasks.filter((s) => s.id !== id),
-        };
+        const updateParentFn = (t) => ({
+          ...t,
+          subtasks: t.subtasks.filter((s) => s.id !== id),
+        });
+
+        if (activeBoard.tasks.some((t) => t.id === parentId)) {
+          setTasks((prev) =>
+            prev.map((t) => (t.id === parentId ? updateParentFn(t) : t))
+          );
+        } else {
+          updateTaskGlobally(parentId, updateParentFn);
+        }
 
         const newTask = {
           ...subtaskToPromote,
           status,
           subtasks: [],
+          synced_board_ids: [],
         };
 
-        setTasks((prev) => [
-          ...prev.map((t) => t.id === parentId ? newParent : t),
-          newTask,
-        ]);
+        setTasks((prev) => [...prev, newTask]);
       }
     } catch (err) {
       console.error("Column drop failed", err);
@@ -770,42 +968,106 @@ export default function App() {
   };
 
   const handleTaskDrop = (draggedData, targetTaskId) => {
-    const { id, type, parentId } = draggedData;
+    const { id, type, parentId, isSyncedTask } = draggedData;
     if (id === targetTaskId) return;
 
-    setTasks((prev) => {
+    // If target is synced, we should ideally update it globally
+    // But handleTaskDrop currently only works on current board's tasks.
+    // Let's make it work for all tasks in active board (including synced)
+
+    setBoards((prevBoards) => {
+      const newBoards = [...prevBoards];
+      const activeBoardIndex = newBoards.findIndex((b) =>
+        b.id === activeBoardId
+      );
+      if (activeBoardIndex === -1) return prevBoards;
+
+      const currentActiveBoard = { ...newBoards[activeBoardIndex] };
+      const allPossibleTasks = [...currentActiveBoard.tasks, ...syncedTasksFromOthers];
+
       let taskToMove;
-      let newTasks = [...prev];
 
       if (type === "task") {
-        taskToMove = newTasks.find((t) => t.id === id);
-        if (taskToMove?.subtasks?.length > 0) return prev;
-        newTasks = newTasks.filter((t) => t.id !== id);
-      } else if (type === "subtask") {
-        const oldParentIndex = newTasks.findIndex((t) => t.id === parentId);
-        if (oldParentIndex === -1) return prev;
+        taskToMove = allPossibleTasks.find((t) => t.id === id);
+        if (taskToMove?.subtasks?.length > 0) return prevBoards;
 
-        const oldParent = { ...newTasks[oldParentIndex] };
-        taskToMove = oldParent.subtasks.find((s) => s.id === id);
-        oldParent.subtasks = oldParent.subtasks.filter((s) => s.id !== id);
-        newTasks[oldParentIndex] = oldParent;
+        // If it was a native task, remove from active board
+        if (!isSyncedTask) {
+          currentActiveBoard.tasks = currentActiveBoard.tasks.filter((t) =>
+            t.id !== id
+          );
+        } else {
+          // If it was synced, we remove it from its original board
+          newBoards.forEach((b, idx) => {
+            if (b.tasks.some((t) => t.id === id)) {
+              newBoards[idx] = {
+                ...b,
+                tasks: b.tasks.filter((t) => t.id !== id),
+              };
+            }
+          });
+          // Also need to remove it from synced_tasks_id if it's no longer synced anywhere
+          // but handleSync does that. Here we are MOVING it.
+          // Wait, the requirement says "duplicated across synced boards".
+          // If we move it to be a subtask, it might no longer be a "task" on those boards?
+          // The current logic of subtasks doesn't support syncing.
+          // For now, let's keep it simple: if you move a synced task to be a subtask,
+          // it loses its "synced task" status at root level and becomes a native subtask of the target.
+          const syncedIds = storage.get("synced_tasks_id") || [];
+          storage.set("synced_tasks_id", syncedIds.filter(sid => sid !== id));
+        }
+      } else if (type === "subtask") {
+        const sourceParent = allPossibleTasks.find((t) => t.id === parentId);
+        if (!sourceParent) return prevBoards;
+
+        taskToMove = sourceParent.subtasks.find((s) => s.id === id);
+
+        // Update the parent (wherever it is)
+        newBoards.forEach((b, idx) => {
+          if (b.tasks.some((t) => t.id === parentId)) {
+            newBoards[idx] = {
+              ...b,
+              tasks: b.tasks.map(t => t.id === parentId ? {
+                ...t,
+                subtasks: t.subtasks.filter(s => s.id !== id)
+              } : t)
+            };
+          }
+        });
       }
 
-      if (!taskToMove) return prev;
+      if (!taskToMove) return prevBoards;
 
-      const targetIndex = newTasks.findIndex((t) => t.id === targetTaskId);
-      if (targetIndex === -1) return prev;
+      const targetTaskIndex = currentActiveBoard.tasks.findIndex((t) =>
+        t.id === targetTaskId
+      );
+      if (targetTaskIndex !== -1) {
+        const targetTask = { ...currentActiveBoard.tasks[targetTaskIndex] };
+        targetTask.subtasks = [...(targetTask.subtasks || []), {
+          ...taskToMove,
+          status: "todo",
+          isSyncedTask: false,
+          synced_board_ids: []
+        }];
+        currentActiveBoard.tasks[targetTaskIndex] = targetTask;
+      } else {
+        // Target might be a synced task
+        const syncedTarget = syncedTasksFromOthers.find(t => t.id === targetTaskId);
+        if (syncedTarget) {
+            updateTaskGlobally(targetTaskId, (t) => ({
+                ...t,
+                subtasks: [...(t.subtasks || []), {
+                    ...taskToMove,
+                    status: "todo",
+                    isSyncedTask: false,
+                    synced_board_ids: []
+                }]
+            }));
+        }
+      }
 
-      const targetTask = { ...newTasks[targetIndex] };
-      if (!targetTask.subtasks) targetTask.subtasks = [];
-
-      targetTask.subtasks = [...targetTask.subtasks, {
-        ...taskToMove,
-        status: "todo",
-      }];
-      newTasks[targetIndex] = targetTask;
-
-      return newTasks;
+      newBoards[activeBoardIndex] = currentActiveBoard;
+      return newBoards;
     });
   };
 
@@ -817,24 +1079,24 @@ export default function App() {
       return;
     }
 
-    setTasks((prev) => {
-      const newTasks = [...prev];
-      const parentIndex = newTasks.findIndex((t) => t.id === targetParentId);
-      if (parentIndex === -1) return prev;
-
-      const parent = { ...newTasks[parentIndex] };
+    const updateFn = (parent) => {
       const subtasks = [...parent.subtasks];
-
       const sourceIndex = subtasks.findIndex((s) => s.id === id);
-      if (sourceIndex === -1) return prev;
+      if (sourceIndex === -1) return parent;
 
       const [movedSubtask] = subtasks.splice(sourceIndex, 1);
       subtasks.splice(targetIndex, 0, movedSubtask);
+      return { ...parent, subtasks };
+    };
 
-      parent.subtasks = subtasks;
-      newTasks[parentIndex] = parent;
-      return newTasks;
-    });
+    // Check if parent is native or synced
+    if (activeBoard.tasks.some((t) => t.id === targetParentId)) {
+      setTasks((prev) =>
+        prev.map((t) => (t.id === targetParentId ? updateFn(t) : t))
+      );
+    } else {
+      updateTaskGlobally(targetParentId, updateFn);
+    }
   };
 
   const handleBoardDragStart = (e, boardId) => {
@@ -943,11 +1205,12 @@ export default function App() {
   // Derived State
   const filteredTasks = useMemo(() => {
     if (!activeBoard) return [];
-    if (filter === "all") return activeBoard.tasks;
-    return activeBoard.tasks.filter((t) =>
+    const allTasks = [...activeBoard.tasks, ...syncedTasksFromOthers];
+    if (filter === "all") return allTasks;
+    return allTasks.filter((t) =>
       getMatrixType(t.impact, t.effort) === filter
     );
-  }, [activeBoard, filter]);
+  }, [activeBoard, filter, syncedTasksFromOthers]);
 
   if (!activeBoard) {
     return (
@@ -1050,7 +1313,7 @@ export default function App() {
                           Cancel
                         </button>
                         <button
-                          onClick={handleSaveSubtaskDescription}
+                          onClick={() => handleSaveSubtaskDescription(viewingSubtaskIsSynced)}
                           className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5"
                         >
                           <Save size={12} /> Save
@@ -1323,6 +1586,10 @@ export default function App() {
                               task={task}
                               onDelete={requestDeleteTask}
                               onEdit={openEditModal}
+                              onSync={(t) => {
+                                setTaskToSync(t);
+                                setIsSyncModalOpen(true);
+                              }}
                               onTaskDrop={handleTaskDrop}
                               onSubtaskDrop={handleSubtaskReorder}
                               onToggleSubtask={toggleSubtaskCompletion}
@@ -1439,6 +1706,14 @@ export default function App() {
         onClose={() => setIsModalOpen(false)}
         onSave={handleSaveTask}
         taskToEdit={editingTask}
+      />
+
+      <SyncModal
+        isOpen={isSyncModalOpen}
+        onClose={() => setIsSyncModalOpen(false)}
+        task={taskToSync}
+        boards={boards}
+        onSync={handleSync}
       />
     </div>
   );
