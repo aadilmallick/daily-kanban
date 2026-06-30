@@ -1273,7 +1273,10 @@ export default function App() {
                     className="flex-1 bg-zinc-950 border border-zinc-700 rounded px-2 py-1 text-sm text-zinc-200 focus:outline-none focus:border-blue-500"
                     onKeyDown={(e) => {
                       if (e.key === "Enter") handleSaveSubtask(viewingSubtaskIsSynced);
-                      if (e.key === "Escape") setIsEditingTitle(false);
+                      if (e.key === "Escape") {
+                        setTempTitle(viewingSubtask.title);
+                        setIsEditingTitle(false);
+                      }
                     }}
                   />
                   <button
@@ -1354,7 +1357,10 @@ export default function App() {
                       />
                       <div className="flex justify-end gap-2">
                         <button
-                          onClick={() => setIsEditingDesc(false)}
+                          onClick={() => {
+                            setTempDesc(viewingSubtask.description || "");
+                            setIsEditingDesc(false);
+                          }}
                           className="px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200"
                         >
                           Cancel
@@ -1412,12 +1418,18 @@ export default function App() {
                       className="w-full bg-zinc-950 border border-zinc-700 rounded-lg p-2 text-sm text-zinc-300 focus:outline-none focus:border-blue-500"
                       onKeyDown={(e) => {
                         if (e.key === "Enter") handleSaveSubtask(viewingSubtaskIsSynced);
-                        if (e.key === "Escape") setIsEditingUrl(false);
+                        if (e.key === "Escape") {
+                          setTempUrl(viewingSubtask.url || "");
+                          setIsEditingUrl(false);
+                        }
                       }}
                     />
                     <div className="flex justify-end gap-2">
                       <button
-                        onClick={() => setIsEditingUrl(false)}
+                        onClick={() => {
+                          setTempUrl(viewingSubtask.url || "");
+                          setIsEditingUrl(false);
+                        }}
                         className="px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200"
                       >
                         Cancel
