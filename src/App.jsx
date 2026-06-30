@@ -712,6 +712,10 @@ export default function App() {
   const [viewingTaskId, setViewingTaskId] = useState(null);
   const [isEditingDesc, setIsEditingDesc] = useState(false);
   const [tempDesc, setTempDesc] = useState("");
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [tempTitle, setTempTitle] = useState("");
+  const [isEditingUrl, setIsEditingUrl] = useState(false);
+  const [tempUrl, setTempUrl] = useState("");
 
   // --- Persistence ---
   useEffect(() => {
@@ -873,6 +877,10 @@ export default function App() {
     setViewingSubtaskIsSynced(!!isSynced);
     setTempDesc(subtask.description || "");
     setIsEditingDesc(false);
+    setTempTitle(subtask.title);
+    setIsEditingTitle(false);
+    setTempUrl(subtask.url || "");
+    setIsEditingUrl(false);
 
     if (popoverRef.current) {
       try {
@@ -881,9 +889,14 @@ export default function App() {
     }
   };
 
-  const handleSaveSubtaskDescription = (isSynced) => {
+  const handleSaveSubtask = (isSynced) => {
     if (!viewingTaskId || !viewingSubtask) return;
-    const updatedSubtask = { ...viewingSubtask, description: tempDesc };
+    const updatedSubtask = {
+      ...viewingSubtask,
+      title: tempTitle,
+      description: tempDesc,
+      url: tempUrl,
+    };
 
     const updateFn = (t) => ({
       ...t,
@@ -902,6 +915,8 @@ export default function App() {
 
     setViewingSubtask(updatedSubtask);
     setIsEditingDesc(false);
+    setIsEditingTitle(false);
+    setIsEditingUrl(false);
   };
 
   const closePopover = () => {
@@ -913,6 +928,8 @@ export default function App() {
     setViewingSubtask(null);
     setViewingTaskId(null);
     setIsEditingDesc(false);
+    setIsEditingTitle(false);
+    setIsEditingUrl(false);
   };
 
   // --- Drag & Drop Handlers ---
@@ -1246,9 +1263,42 @@ export default function App() {
         {viewingSubtask && (
           <div className="flex flex-col">
             <div className="flex items-start justify-between p-4 border-b border-zinc-800 bg-zinc-900/50">
-              <h3 className="font-semibold text-lg leading-snug pr-4">
-                {viewingSubtask.title}
-              </h3>
+              {isEditingTitle ? (
+                <div className="flex-1 flex gap-2 mr-4">
+                  <input
+                    autoFocus
+                    type="text"
+                    value={tempTitle}
+                    onChange={(e) => setTempTitle(e.target.value)}
+                    className="flex-1 bg-zinc-950 border border-zinc-700 rounded px-2 py-1 text-sm text-zinc-200 focus:outline-none focus:border-blue-500"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleSaveSubtask(viewingSubtaskIsSynced);
+                      if (e.key === "Escape") {
+                        setTempTitle(viewingSubtask.title);
+                        setIsEditingTitle(false);
+                      }
+                    }}
+                  />
+                  <button
+                    onClick={() => handleSaveSubtask(viewingSubtaskIsSynced)}
+                    className="text-blue-400 hover:text-blue-300 transition-colors"
+                  >
+                    <Save size={18} />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex-1 flex items-center gap-2 pr-4 group/title">
+                  <h3 className="font-semibold text-lg leading-snug">
+                    {viewingSubtask.title}
+                  </h3>
+                  <button
+                    onClick={() => setIsEditingTitle(true)}
+                    className="text-zinc-500 hover:text-blue-400 transition-colors opacity-0 group-hover/title:opacity-100"
+                  >
+                    <Pencil size={14} />
+                  </button>
+                </div>
+              )}
               <button
                 onClick={closePopover}
                 className="text-zinc-500 hover:text-zinc-300 transition-colors"
@@ -1307,13 +1357,16 @@ export default function App() {
                       />
                       <div className="flex justify-end gap-2">
                         <button
-                          onClick={() => setIsEditingDesc(false)}
+                          onClick={() => {
+                            setTempDesc(viewingSubtask.description || "");
+                            setIsEditingDesc(false);
+                          }}
                           className="px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200"
                         >
                           Cancel
                         </button>
                         <button
-                          onClick={() => handleSaveSubtaskDescription(viewingSubtaskIsSynced)}
+                          onClick={() => handleSaveSubtask(viewingSubtaskIsSynced)}
                           className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5"
                         >
                           <Save size={12} /> Save
@@ -1340,19 +1393,69 @@ export default function App() {
                   )}
               </div>
 
-              {viewingSubtask.url && (
-                <div className="mt-6 pt-4 border-t border-zinc-800">
-                  <a
-                    href={viewingSubtask.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-2 text-sm text-blue-400 hover:text-blue-300 hover:underline"
-                  >
-                    <ExternalLink size={14} />
-                    Open Attached Link
-                  </a>
+              <div className="mt-6 pt-4 border-t border-zinc-800">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs text-zinc-500 font-medium uppercase tracking-wider">
+                    Link
+                  </span>
+                  {!isEditingUrl && (
+                    <button
+                      onClick={() => setIsEditingUrl(true)}
+                      className="text-blue-400 hover:text-blue-300 text-xs flex items-center gap-1"
+                    >
+                      <Pencil size={10} /> {viewingSubtask.url ? "Edit" : "Add Link"}
+                    </button>
+                  )}
                 </div>
-              )}
+
+                {isEditingUrl ? (
+                  <div className="space-y-2">
+                    <input
+                      type="url"
+                      value={tempUrl}
+                      onChange={(e) => setTempUrl(e.target.value)}
+                      placeholder="https://"
+                      className="w-full bg-zinc-950 border border-zinc-700 rounded-lg p-2 text-sm text-zinc-300 focus:outline-none focus:border-blue-500"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") handleSaveSubtask(viewingSubtaskIsSynced);
+                        if (e.key === "Escape") {
+                          setTempUrl(viewingSubtask.url || "");
+                          setIsEditingUrl(false);
+                        }
+                      }}
+                    />
+                    <div className="flex justify-end gap-2">
+                      <button
+                        onClick={() => {
+                          setTempUrl(viewingSubtask.url || "");
+                          setIsEditingUrl(false);
+                        }}
+                        className="px-3 py-1.5 text-xs text-zinc-400 hover:text-zinc-200"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={() => handleSaveSubtask(viewingSubtaskIsSynced)}
+                        className="bg-blue-600 hover:bg-blue-500 text-white px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5"
+                      >
+                        <Save size={12} /> Save
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  viewingSubtask.url && (
+                    <a
+                      href={viewingSubtask.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 text-sm text-blue-400 hover:text-blue-300 hover:underline"
+                    >
+                      <ExternalLink size={14} />
+                      Open Attached Link
+                    </a>
+                  )
+                )}
+              </div>
             </div>
           </div>
         )}
